@@ -83,22 +83,78 @@ pointers are not good because they are local to a machine.
 That means if we need more computers this won't work.
 
 ## Finally, distributed system.
-
 So we are back to array and index. Array can be mapped to a different machine.
-It is also a great way to partition a fixed size of memory (Here is the players).
+It is also a great way to partition a fixed size of memory (Here is the players aka session_ids).
 We can determine how many players and how many tables a server can have.
+To keep it simple I am only gonna talk about session_id here.
 An index can be used and if we align it with binary (base 2) and it works like memory cache line I have learned in school.
 We can perform right swift to find which partition and it's index on the partition.
 it's also possible to recover should a partition fail because array is portable.
 
-I intend to keep bitmap in my design and am still exploring.
-I am also thinking about use 0 as null value which would simplify the business logic,
-but it might ruin the math? We will lose Player_id, server_id, table_id 0.
+## allocate
+As I mentioned above, we make the index in a range of power of 2. Say we pick 2^3 here so we have 8 session_id.
+We partition it to several servers and that's the way to scale it.
+Say we want each partition to be 4 sessions and each server handles a partition.
+So now we have two servers, server 0 and server 1.
+2^3 right swift 2^2 (4, aka. partition size) is 2^1 = 2 (number server)
 
+For allocate we can have a load balancer sending player to less loaded partition or whatever we like.
+Then the server just incr to allocate an index (local index) and calculate the global index.
 
-To be continue...
+Assume the request was sent to server number 1 which has no row yet.
+So server 1 add a row which has local index 0.
+It calculates the global index:
 
+global index = local index + partition size * server number
+4 = 0 + 4 * 1
+The global index is 4.
 
+## lookup
+For any given index we can do bitwise to find it's partition and it's local index in the partition.
+Here is an example, index 4 which is 2^2.
+The first partition has 0 to 3.
+The second partition has 4 to 7.
+
+Partition number = index / partition size
+=> 4 / 4 = 1. (bitwise 4 >> 2)
+index 4 is in partition number 1 which is correct.
+
+global index = local index + partition size * server number
+=> local index = global index - partition size * server number
+=> 0 = 4 - 4 * 1
+The local index is 0.
+
+## encode/decode
+We now has an index goes from 0 to 2^n - 1. (Here is player_id aka session_id).
+However, we can also use this index to create something else other than integer. For example, short url like AAAAA.
+If we pick 64 possible char to represent a char in the url, then we are encoding it into base64.
+So an integer from our index can be encoded into a string.
+Each char is a left shift in base 64 so multiply by 64 each left switch.
+
+When 'A' is 0, AAAAA = 0*64^4 + 0*64^3 + 0*64^2 + 0*64^1 + 0*64^0 = 0
+
+We can also customize our base64 schema, or adjust the encoding/range to generate a longer string.
+
+## obfuscation
+Surely some times we don't want to expose our index or it's base64 encoded to the client.
+We could still benefit from this index though.
+Let's call it internal_id and the one we show to client is public_id.
+We can obfuscate it a bit by doing some math.
+
+public_id = private_id ^ a number * a secret number
+
+Then we encode the public_id.
+
+short_url = encode(public_id)
+
+## No hashing, reuse or not reuse
+Here we have a distributed system for temporary session_id without hashing.
+It is easy to scale by raising the power of 2.
+My table example is the reuse case where our slots number is fixed and session_id is temporary.
+So reclaim is needed thus the logic will be much more complicated.
+
+There are other applications that do not reuse the index. For example, short url and payment id.
+In those cases it is pretty simple, just use a big number like 2^64 which is ridiculously big to run out in our lifetime.
 
 
 # template-c Repository Guide
